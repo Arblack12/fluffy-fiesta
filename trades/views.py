@@ -19,6 +19,9 @@ from django.contrib.auth.models import User
 from django.db import transaction  # For atomic transactions
 import matplotlib.pyplot as plt
 from matplotlib.ticker import StrMethodFormatter
+import matplotlib
+matplotlib.use("Agg")
+from django.core.paginator import Paginator
 
 # Force matplotlib to use a non-interactive backend so that no GUI is started.
 import matplotlib
@@ -195,9 +198,18 @@ def index(request):
         else:
             messages.warning(request, f"No item or alias found matching '{search_query}'.")
 
-    all_transactions = Transaction.objects.filter(user=request.user).order_by('-date_of_holding')
+    transactions_queryset = Transaction.objects.filter(user=request.user).order_by('-date_of_holding')
+
+    # If you still want all transactions available in the template:
+    all_transactions = transactions_queryset
+
+    # Paginate the transactions – for example, 10 per page:
+    paginator = Paginator(transactions_queryset, 10)
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
 
     context = {
+        'page_obj': page_obj,
         'transaction_form': TransactionManualItemForm(),
         'edit_form': edit_form,
         'timeframe': timeframe,
@@ -306,17 +318,8 @@ def watchlist_list(request):
     })
 
 
-from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
-from django.contrib import messages
-from datetime import datetime
-from .models import WealthData
-from .forms import WealthDataForm
-import io
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-from matplotlib.ticker import StrMethodFormatter
+
 
 @login_required
 def wealth_list(request):
@@ -1148,4 +1151,3 @@ def item_profit_chart(request):
     plt.close(fig)
     buf.seek(0)
     return HttpResponse(buf.getvalue(), content_type='image/png')
-

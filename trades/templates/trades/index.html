@@ -218,68 +218,62 @@
         </div>
     </div>
 
-    <!-- TRANSACTIONS TABLE + optional Edit Form -->
-    <h2>Transactions</h2>
-    <table>
-        <thead>
+ <!-- TRANSACTIONS TABLE + optional Edit Form -->
+<h2>Transactions</h2>
+<table>
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Item Name</th>
+            <th>Type</th>
+            <th>Price</th>
+            <th>Quantity</th>
+            <th>Date</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for t in page_obj %}
             <tr>
-                <th>ID</th>
-                <th>Item Name</th>
-                <th>Type</th>
-                <th>Price</th>
-                <th>Quantity</th>
-                <th>Date</th>
-                <th>Actions</th>
+                <td>{{ t.id }}</td>
+                <td>{{ t.item.name }}</td>
+                <td>{{ t.trans_type }}</td>
+                <td>{{ t.price|floatformat:0|intcomma }}</td>
+                <td>{{ t.quantity|floatformat:0|intcomma }}</td>
+                <td>{{ t.date_of_holding }}</td>
+                <td>
+                    <a href="?edit_trans={{ t.id }}">Edit</a> |
+                    <form method="post" style="display:inline;">
+                        {% csrf_token %}
+                        <input type="hidden" name="transaction_id" value="{{ t.id }}">
+                        <button type="submit" name="delete_transaction"
+                                onclick="return confirm('Delete this transaction?');">
+                            Delete
+                        </button>
+                    </form>
+                </td>
             </tr>
-        </thead>
-        <tbody>
-        {% if item_obj %}
-            {% for t in item_transactions %}
-                <tr>
-                    <td>{{ t.id }}</td>
-                    <td>{{ t.item.name }}</td>
-                    <td>{{ t.trans_type }}</td>
-                    <td>{{ t.price|floatformat:0|intcomma }}</td>
-                    <td>{{ t.quantity|floatformat:0|intcomma }}</td>
-                    <td>{{ t.date_of_holding }}</td>
-                    <td>
-                        <a href="?edit_trans={{ t.id }}">Edit</a> |
-                        <form method="post" style="display:inline;">
-                            {% csrf_token %}
-                            <input type="hidden" name="transaction_id" value="{{ t.id }}">
-                            <button type="submit" name="delete_transaction"
-                                    onclick="return confirm('Delete this transaction?');">
-                                Delete
-                            </button>
-                        </form>
-                    </td>
-                </tr>
-            {% endfor %}
-        {% else %}
-            {% for t in all_transactions %}
-                <tr>
-                    <td>{{ t.id }}</td>
-                    <td>{{ t.item.name }}</td>
-                    <td>{{ t.trans_type }}</td>
-                    <td>{{ t.price|floatformat:0|intcomma }}</td>
-                    <td>{{ t.quantity|floatformat:0|intcomma }}</td>
-                    <td>{{ t.date_of_holding }}</td>
-                    <td>
-                        <a href="?edit_trans={{ t.id }}">Edit</a> |
-                        <form method="post" style="display:inline;">
-                            {% csrf_token %}
-                            <input type="hidden" name="transaction_id" value="{{ t.id }}">
-                            <button type="submit" name="delete_transaction"
-                                    onclick="return confirm('Delete this transaction?');">
-                                Delete
-                            </button>
-                        </form>
-                    </td>
-                </tr>
-            {% endfor %}
-        {% endif %}
-        </tbody>
-    </table>
+        {% empty %}
+            <tr>
+                <td colspan="7">No transactions found.</td>
+            </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<!-- Pagination Controls -->
+<div class="pagination" style="margin-top:15px;">
+    {% if page_obj.has_previous %}
+        <a href="?page={{ page_obj.previous_page_number }}">« Previous</a>
+    {% endif %}
+
+    <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+
+    {% if page_obj.has_next %}
+        <a href="?page={{ page_obj.next_page_number }}">Next »</a>
+    {% endif %}
+</div>
+
 
 
     <!-- If editing a transaction, show form -->

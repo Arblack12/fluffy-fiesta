@@ -170,6 +170,7 @@ def index(request):
     global_realised_profit = Transaction.objects.filter(user=request.user).aggregate(total=Max('cumulative_profit'))['total'] or 0
     item_image_url = ""
 
+    search_query = request.GET.get('search', '').strip()
     if search_query:
         alias_match = Alias.objects.filter(short_name__iexact=search_query).first()
         if not alias_match:
@@ -179,26 +180,34 @@ def index(request):
             item_alias = alias_match
         else:
             item_obj = Item.objects.filter(name__iexact=search_query).first()
+            item_alias = None
 
         if item_obj:
             if item_alias is None:
                 item_alias = Alias.objects.filter(full_name__iexact=item_obj.name).first()
             accumulation_obj = AccumulationPrice.objects.filter(item=item_obj).first()
             target_obj = TargetSellPrice.objects.filter(item=item_obj).first()
-            item_transactions = Transaction.objects.filter(item=item_obj, user=request.user).order_by('-date_of_holding')
-            sells = item_transactions.filter(trans_type='Sell')
-            total_sold = sells.aggregate(sold_sum=Sum('quantity'))['sold_sum'] or 0
+            # Fetch all transactions for the item (ignoring user filter)
+            item_transactions = Transaction.objects.filter(item=item_obj).order_by('-date_of_holding')
+            total_sold = item_transactions.filter(trans_type='Sell').aggregate(sold_sum=Sum('quantity'))['sold_sum'] or 0
             buys_qty = item_transactions.filter(trans_type='Buy').aggregate(buy_sum=Sum('quantity'))['buy_sum'] or 0
             remaining_qty = buys_qty - total_sold
-            if total_sold > 0:
-                avg_sold_price = sells.aggregate(avg_price=Avg('price'))['avg_price'] or 0
+        if total_sold > 0:
+            avg_sold_price = item_transactions.filter(trans_type='Sell').aggregate(avg_price=Avg('price'))['avg_price'] or 0
             item_profit = item_transactions.aggregate(item_profit_sum=Sum('realised_profit'))['item_profit_sum'] or 0
-            if item_alias and item_alias.image_file:
-                item_image_url = item_alias.image_file.url
+        if item_alias and item_alias.image_file:
+            item_image_url = item_alias.image_file.url
+
+            # Override the default queryset with the item-based transactions:
+            transactions_queryset = item_transactions
         else:
             messages.warning(request, f"No item or alias found matching '{search_query}'.")
+            transactions_queryset = Transaction.objects.filter(user=request.user).order_by('-date_of_holding')
+    else:
+        # Default: only show current user's transactions.
+        transactions_queryset = Transaction.objects.filter(user=request.user).order_by('-date_of_holding')
 
-    transactions_queryset = Transaction.objects.filter(user=request.user).order_by('-date_of_holding')
+
 
     # If you still want all transactions available in the template:
     all_transactions = transactions_queryset

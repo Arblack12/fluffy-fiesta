@@ -910,7 +910,7 @@ def item_price_chart(request):
         buf.seek(0)
         return HttpResponse(buf.getvalue(), content_type='image/png')
 
-    qs = Transaction.objects.filter(user=user, item=item_obj).order_by('date_of_holding', 'id')
+    qs = Transaction.objects.filter(item=item_obj).order_by('date_of_holding', 'id')
     if not qs.exists():
         fig, ax = plt.subplots()
         ax.text(0.5, 0.5, f"No transactions for '{item_obj.name}'", ha='center', va='center')
@@ -933,12 +933,12 @@ def item_price_chart(request):
     df['date'] = pd.to_datetime(df['date'])
     df.set_index('date', inplace=True)
 
-    # If you want to resample daily, do it here so lines connect across missing days
+    # Resample based on timeframe
     if timeframe == 'Monthly':
         df = df.resample('MS').apply({
             'trans_type': 'last',
-            'price': 'mean',      # or maybe a last known?
-            'quantity': 'sum'     # or whatever grouping logic you need
+            'price': 'mean',
+            'quantity': 'sum'
         })
     elif timeframe == 'Yearly':
         df = df.resample('YS').apply({
@@ -947,26 +947,17 @@ def item_price_chart(request):
             'quantity': 'sum'
         })
     else:
-        # daily
         df = df.resample('D').apply({
             'trans_type': 'last',
             'price': 'mean',
             'quantity': 'sum'
         })
 
-    # Now we have 1 row per daily/monthly/yearly bucket.
-    # Next: separate buys vs sells within each group if needed.
-    # Weighted‐avg approach can be re-done with the original groupby code or you can keep it simpler.
-
-    # If you specifically want Weighted average buy/sell lines:
-    # (We re-run the group logic you had, then resample daily to forward-fill.)
-    # For brevity, let's do a simplified approach: just separate Buy vs Sell, forward-fill.
-
-    # We'll do the exact weighted average approach you had:
-    # 1) revert to the original df (unresampled)
+    # Re-run the original DataFrame (unresampled) to compute weighted average buy/sell prices
     df_orig = pd.DataFrame(rows)
     df_orig['date'] = pd.to_datetime(df_orig['date'])
-    # group by the "timeframe" key
+
+    # Define a function to create a grouping key based on timeframe
     def date_key(d):
         if timeframe == 'Monthly':
             return (d.year, d.month)
@@ -975,20 +966,23 @@ def item_price_chart(request):
         else:
             return d
 
-    df_orig['group_key'] = df_orig['date'].apply(date_key)
+    # Use a temporary grouping key column
+    df_orig['temp_group'] = df_orig['date'].apply(date_key)
 
-    buy_df = df_orig[df_orig['trans_type'] == 'Buy'].groupby('group_key').apply(
+    # Compute weighted average buy prices grouped by temp_group
+    buy_df = df_orig[df_orig['trans_type'] == 'Buy'].groupby('temp_group').apply(
         lambda g: (g['price'] * g['quantity']).sum() / g['quantity'].sum()
     ).rename('buy_price').reset_index()
 
-    sell_df = df_orig[df_orig['trans_type'] == 'Sell'].groupby('group_key').apply(
+    # Compute weighted average sell prices grouped by temp_group
+    sell_df = df_orig[df_orig['trans_type'] == 'Sell'].groupby('temp_group').apply(
         lambda g: (g['price'] * g['quantity']).sum() / g['quantity'].sum()
     ).rename('sell_price').reset_index()
 
-    merged = pd.merge(buy_df, sell_df, on='group_key', how='outer')
+    # Merge buy and sell data on temp_group
+    merged = pd.merge(buy_df, sell_df, on='temp_group', how='outer')
 
-    # Convert group_key back to a real date. If daily, we can use it directly.
-    # If monthly or yearly, pick an arbitrary day in that month/year:
+    # Convert temp_group back to a real date.
     def key_to_date(k):
         if isinstance(k, tuple):  # (year, month)
             return pd.to_datetime(f"{k[0]}-{k[1]:02d}-01")
@@ -997,25 +991,21 @@ def item_price_chart(request):
         else:
             return pd.to_datetime(k)  # daily is already a date
 
-    merged['date'] = merged['group_key'].apply(key_to_date)
+    merged['date'] = merged['temp_group'].apply(key_to_date)
     merged.set_index('date', inplace=True)
-    # Replace 0 with NaN to avoid dropping to zero lines
+    # Replace 0 with NaN to avoid zero dips
     merged['buy_price'] = merged['buy_price'].replace(0, pd.NA)
     merged['sell_price'] = merged['sell_price'].replace(0, pd.NA)
 
-    # Resample daily so lines are continuous; forward-fill
-    # (If timeframe is monthly/yearly, you might prefer monthly steps, but daily ensures continuous lines).
+    # Resample daily so lines remain continuous; forward-fill missing values
     merged = merged.resample('D').asfreq()
     merged['buy_price'] = merged['buy_price'].ffill()
     merged['sell_price'] = merged['sell_price'].ffill()
 
-    # Build a string x_label
+    # Build a string x_label for the x-axis
     merged['x_label'] = merged.index.strftime('%Y-%m-%d')
 
-    # Drop rows that are entirely NaN if you prefer, or keep them so lines remain connected.
-    # merged.dropna(how='all', subset=['buy_price','sell_price'], inplace=True)
-
-    # Plot
+    # Plot the chart
     fig, ax = plt.subplots(figsize=(10, 4))
     ax.plot(merged['x_label'], merged['buy_price'], color='green', linewidth=1, marker='', label='Buy Price')
     ax.plot(merged['x_label'], merged['sell_price'], color='red', linewidth=1, marker='', label='Sell Price')
@@ -1023,8 +1013,6 @@ def item_price_chart(request):
     ax.set_ylabel("Price")
     ax.legend()
     ax.yaxis.set_major_formatter(StrMethodFormatter('{x:,.0f}'))
-
-    # Limit x-axis labels
     ax.xaxis.set_major_locator(MaxNLocator(10))
     plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
     fig.tight_layout()
